@@ -94,7 +94,7 @@ gogo.GoVoid(func() {
                 continue
             }
             pageTitle := doc.Find("title").Text()
-            println("page %s had title %s \n\n\n", resHttp.Request.URL.String(), pageTitle)
+            fmt.Printf("page %s had title %s \n", resHttp.Request.URL.String(), pageTitle)
             println("Got response \n", resHttp.StatusCode)
         }
     }
@@ -130,7 +130,7 @@ for res := range feed {
             continue
         }
         pageTitle := doc.Find("title").Text()
-        println("page %s had title %s \n\n\n", resHttp.Request.URL.String(), pageTitle)
+        fmt.Printf("page %s had title %s \n", resHttp.Request.URL.String(), pageTitle)
         println("Got response \n", resHttp.StatusCode)
     }
 }
@@ -171,7 +171,7 @@ processingGroup := gogo.NewPool(processingConcurrency, len(urls), func(i int) fu
             return nil, err
         }
         pageTitle := doc.Find("title").Text()
-        println("page %s had title %s \n\n\n", result.Request.URL.String(), pageTitle)
+        fmt.Printf("page %s had title %s \n", result.Request.URL.String(), pageTitle)
         return nil, nil
     }
 })
