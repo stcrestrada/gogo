@@ -19,7 +19,12 @@ jobs:
     #### expecting it in the form of
     ####   /go/src/github.com/circleci/go-tool
     ####   /go/src/bitbucket.org/circleci/go-tool
-    working_directory: /go/src/github.com/stcrestrada/gogo
+#    working_directory: /go/src/github.com/stcrestrada/gogo
     steps:
       - checkout
-      - run: go test -v
+      - run:
+          name: Install go convery
+          command: go get github.com/smartystreets/goconvey
+      - run:
+          name: run test
+          command: go test -v
