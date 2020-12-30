@@ -2,6 +2,8 @@
 
 Manage goroutines and worker pools with ease. Chain them to create complex processing pipelines.   
 
+**Made with ❤**️ in Washington D.C, the original home of [Gogo](https://en.wikipedia.org/wiki/Go-go).
+
 ## Features:
 
 - **Easy to use** - Just gogo.Go()!
@@ -11,7 +13,6 @@ Manage goroutines and worker pools with ease. Chain them to create complex proce
 - **Results Feeds** - listen to results from work pools as they become available 
 - **Chaining** - pipe work pool results into other work pools to create pipelines
  
-
 
 ## Installation
 
