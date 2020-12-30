@@ -1,11 +1,12 @@
 package main
 
 import (
-	"gogo"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/stcrestrada/gogo"
 )
 
 func SimpleAsyncGoroutines() {
@@ -67,7 +68,7 @@ func ConcurrentGoroutinePoolsWithConcurrentFeed() {
 					continue
 				}
 				pageTitle := doc.Find("title").Text()
-				println("page %s had title %s \n\n\n", resHttp.Request.URL.String(), pageTitle)
+				fmt.Printf("page %s had title %s \n\n\n", resHttp.Request.URL.String(), pageTitle)
 				println("Got response \n", resHttp.StatusCode)
 			}
 		}
@@ -100,7 +101,7 @@ func ConcurrentGoroutinePoolsWithRealtimeFeed() {
 				continue
 			}
 			pageTitle := doc.Find("title").Text()
-			println("page %s had title %s \n\n\n", resHttp.Request.URL.String(), pageTitle)
+			fmt.Printf("page %s had title %s \n", resHttp.Request.URL.String(), pageTitle)
 			println("Got response \n", resHttp.StatusCode)
 		}
 	}
@@ -134,7 +135,7 @@ func ChainedPools(){
 				return nil, err
 			}
 			pageTitle := doc.Find("title").Text()
-			println("page %s had title %s \n\n\n", result.Request.URL.String(), pageTitle)
+			fmt.Printf("page %s had title %s \n", result.Request.URL.String(), pageTitle)
 			return nil, nil
 		}
 	})

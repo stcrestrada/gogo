@@ -1,4 +1,4 @@
-module gogo
+module github.com/stcrestrada/gogo
 
 go 1.15
 
