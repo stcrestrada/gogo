@@ -1,5 +1,7 @@
 # Gogo: launch and manage Goroutines easier
 
+[![Trees planted all time](https://cloudsynth.com/itree/i/01DV1ES2VCCHYVGV255RR7ZPDK-01DV1ES9CXCEB1939H73HXB9TY?period=all)](https://cloudsynth.com/itree/r/01DV1ES2VCCHYVGV255RR7ZPDK-01DV1ES9CXCEB1939H73HXB9TY)
+
 Manage goroutines and worker pools with ease. Chain them to create complex processing pipelines.   
 
 **Made with ❤**️ in Washington D.C, the original home of [Gogo](https://en.wikipedia.org/wiki/Go-go).
