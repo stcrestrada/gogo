@@ -1,6 +1,6 @@
 # Gogo: launch and manage Goroutines easier
 
-[![CircleCI](https://circleci.com/gh/circleci/circleci-docs.svg?style=svg)](https://app.circleci.com/pipelines/circleci/RB2YFmKNkMC34gwyzkDz4x/CKB9Jb9bHRN8FpQGZavFtA)
+[![CircleCI](https://circleci.com/gh/circleci/circleci-docs.svg?style=svg)](https://app.circleci.com/pipelines/circleci/RB2YFmKNkMC34gwyzkDz4x/CpXcGxTWYD6PtQVvnnWaxH?branch=master)
 [![](https://godoc.org/github.com/strestrada/gogo?status.svg)](http://godoc.org/github.com/stcrestrada/gogo)
 [![](https://img.shields.io/github/license/stcrestrada/gogo)](https://github.com/stcrestrada/gogo/blob/master/LICENSE)
 
