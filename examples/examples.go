@@ -23,18 +23,19 @@ func SimpleAsyncGoroutines() {
 	println("got status code", res.StatusCode)
 
 	// Or just wait for the results
-	gogo.Go(func() (struct{}, error) {
+	gogo.Go(func() (*http.Response, error) {
 		// wait for results (blocking), concurrent safe
-		res, err := proc.Result()
+		resp, err := proc.Result()
 		if err != nil {
 			println("err", err)
 		}
-		body, err := io.ReadAll(res.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			println("err", err)
+			return nil, err
 		}
 		println("got body", body)
-		return struct{}{}, nil
+		return resp, nil
 	}).Wait()
 }
 

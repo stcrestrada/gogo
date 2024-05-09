@@ -43,33 +43,34 @@ import (
 )
 
 func main() {
- // Launched in another goroutine (not blocking)
- proc := gogo.Go(func() (*http.Response, error) {
-     return http.Get("https://news.ycombinator.com/")
- })
- 
- 
- // wait for results (blocking), concurrent safe
- res, err := proc.Result()
- if err != nil {
-     println("err", err)
- }
- println("got status code", res.StatusCode)
- 
- // Or just wait for the results
-	gogo.Go(func() (struct{}, error) {
-		// wait for results (blocking), concurrent safe
-		res, err := proc.Result()
-		if err != nil {
-			println("err", err)
-		}
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			println("err", err)
-		}
-		println("got body", body)
-		return struct{}{}, nil
-	}).Wait()
+     // Launched in another goroutine (not blocking)
+     proc := gogo.Go(func() (*http.Response, error) {
+         return http.Get("https://news.ycombinator.com/")
+     })
+     
+     
+     // wait for results (blocking), concurrent safe
+     res, err := proc.Result()
+     if err != nil {
+         println("err", err)
+     }
+     println("got status code", res.StatusCode)
+     
+     // Or just wait for the results
+    gogo.Go(func() (*http.Response, error) {
+        // wait for results (blocking), concurrent safe
+        resp, err := proc.Result()
+        if err != nil {
+            println("err", err)
+        }
+        body, err := io.ReadAll(resp.Body)
+        if err != nil {
+            println("err", err)
+            return nil, err
+        }
+        println("got body", body)
+        return resp, nil
+    }).Wait()
 
 }
 ```                       
