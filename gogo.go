@@ -4,30 +4,30 @@ import (
 	"sync"
 )
 
-type Optional struct {
-	Result interface{}
+type Optional[T any] struct {
+	Result T
 	Error  error
 }
 
-type Proc struct {
-	fn     func() (interface{}, error)
-	result *Optional
+type Proc[T any] struct {
+	fn     func() (T, error)
+	result *Optional[T]
 	once   sync.Once
 	wg     sync.WaitGroup
 }
 
-func (p *Proc) Done() bool {
+func (p *Proc[T]) Done() bool {
 	return p.result != nil
 }
 
 // Blocking
-func (p *Proc) Go() (interface{}, error) {
+func (p *Proc[T]) Go() (T, error) {
 	p.once.Do(func() {
 		p.wg.Add(1)
-		resultsChan := make(chan *Optional)
+		resultsChan := make(chan *Optional[T])
 		go func() {
 			res, err := p.fn()
-			resultsChan <- &Optional{
+			resultsChan <- &Optional[T]{
 				Result: res,
 				Error:  err,
 			}
@@ -39,50 +39,50 @@ func (p *Proc) Go() (interface{}, error) {
 	return p.result.Result, p.result.Error
 }
 
-
-func (p *Proc) Wait(){
+func (p *Proc[T]) Wait() {
 	p.Go()
 	p.wg.Wait()
 }
 
 // Wrap a simple function
-func GoVoid(f func()) *Proc {
-	wrapper := func() (interface{}, error) {
+func GoVoid[T any](f func()) *Proc[T] {
+	wrapper := func() (T, error) {
 		f()
-		return nil, nil
+		var t T
+		return t, nil
 	}
 
-	proc := &Proc{
+	proc := &Proc[T]{
 		fn: wrapper,
 	}
 	go proc.Go()
 	return proc
 }
 
-func (p *Proc) Result() (interface{}, error) {
+func (p *Proc[T]) Result() (T, error) {
 	return p.Go()
 }
 
-func Go(fn func() (interface{}, error)) *Proc {
-	proc := &Proc{
+func Go[T any](fn func() (T, error)) *Proc[T] {
+	proc := &Proc[T]{
 		fn: fn,
 	}
 	go proc.Go()
 	return proc
 }
 
-type Pool struct {
+type Pool[T any] struct {
 	concurrency int
 	size        int
-	makeFn      func(i int) func() (interface{}, error)
-	feed        chan Optional   // Sized to size
-	wg          *sync.WaitGroup // Sized to 1 always
+	makeFn      func(i int) func() (T, error)
+	feed        chan Optional[T] // Sized to size
+	wg          *sync.WaitGroup  // Sized to 1 always
 	closeOnce   sync.Once
 	startOnce   sync.Once
 	closed      bool
 }
 
-func (g *Pool) close() {
+func (g *Pool[T]) close() {
 	g.closeOnce.Do(func() {
 		g.closed = true
 		close(g.feed)
@@ -90,7 +90,7 @@ func (g *Pool) close() {
 	})
 }
 
-func (g *Pool) Go() chan Optional {
+func (g *Pool[T]) Go() chan Optional[T] {
 	// Close the ability to use the rest of it
 	go g.startOnce.Do(func() {
 		var wg = &sync.WaitGroup{}
@@ -102,7 +102,7 @@ func (g *Pool) Go() chan Optional {
 			fn := g.makeFn(i)
 			go func() {
 				res, err := fn()
-				g.feed <- Optional{
+				g.feed <- Optional[T]{
 					Result: res,
 					Error:  err,
 				}
@@ -117,22 +117,22 @@ func (g *Pool) Go() chan Optional {
 	return g.feed
 }
 
-func (g *Pool) Wait() {
+func (g *Pool[T]) Wait() {
 	g.Go() // Safe to call again in case they haven't!
 	g.wg.Wait()
 }
 
-func NewPool(concurrency int, size int, fn func(i int) func() (interface{}, error)) *Pool {
+func NewPool[T any](concurrency int, size int, fn func(i int) func() (T, error)) *Pool[T] {
 	if concurrency > size {
 		concurrency = size
 	}
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	return &Pool{
+	return &Pool[T]{
 		concurrency: concurrency,
 		size:        size,
 		makeFn:      fn,
-		feed:        make(chan Optional, size),
+		feed:        make(chan Optional[T], size),
 		wg:          wg,
 	}
 }

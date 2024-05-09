@@ -37,14 +37,15 @@ These procs can be accessed concurrently safely!
 package main
 
 import (
-    "net/http"
-
+	"io"
+	"net/http"
+    
     "github.com/stcrestrada/gogo"
 )
 
 func main() {
  // Launched in another goroutine (not blocking)
- proc := gogo.Go(func() (interface{}, error) {
+ proc := gogo.Go(func() (*http.Response, error) {
      return http.Get("https://news.ycombinator.com/")
  })
  
@@ -54,24 +55,22 @@ func main() {
  if err != nil {
      println("err", err)
  }
- resHttp := res.(*http.Response)
- println("got status code", resHttp.StatusCode)
+ println("got status code", res.StatusCode)
  
  // Or just wait for the results
- gogo.Go(func() (interface{}, error) {
-     // wait for results (blocking), concurrent safe
-     res, err := proc.Result()
-     if err != nil {
-         println("err", err)
-     }
-     resHttp := res.(*http.Response)
-     body, err := ioutil.ReadAll(resHttp.Body)
-     if err != nil {
-         println("err", err)
-     }
-     println("got body", body)
-     return nil, nil
- }).Wait()
+	gogo.Go(func() (struct{}, error) {
+		// wait for results (blocking), concurrent safe
+		res, err := proc.Result()
+		if err != nil {
+			println("err", err)
+		}
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			println("err", err)
+		}
+		println("got body", body)
+		return struct{}{}, nil
+	}).Wait()
 
 }
 ```                       
@@ -88,7 +87,8 @@ package main
 import (
     "fmt"
     "net/http"
-
+	
+    "github.com/PuerkitoBio/goquery"
     "github.com/stcrestrada/gogo"
 )
 
@@ -97,9 +97,9 @@ func main() {
      urls := []string{"https://www.reddit.com/", "https://www.apple.com/", "https://www.yahoo.com/", "https://news.ycombinator.com/", "https://httpbin.org/uuid"}
      
      // Simple pool
-     pool := gogo.NewPool(concurrency, len(urls), func(i int) func() (interface{}, error) {
+     pool := gogo.NewPool(concurrency, len(urls), func(i int) func() (*http.Response, error) {
          url := urls[i]
-         return func() (interface{}, error) {
+         return func() (*http.Response, error) {
              resp, err := http.Get(url)
              return resp, err
          }
@@ -109,18 +109,17 @@ func main() {
      feed := pool.Go()
      
      // read the feed concurrently
-     gogo.GoVoid(func() {
+     gogo.GoVoid[struct{}](func() {
          for res := range feed {
              if res.Error == nil {
-                 resHttp := res.Result.(*http.Response)
-                 doc, err := goquery.NewDocumentFromReader(resHttp.Body)
+                 doc, err := goquery.NewDocumentFromReader(res.Result.Body)
                  if err != nil{
                      println("unable to parse", err)
                      continue
                  }
                  pageTitle := doc.Find("title").Text()
-                 fmt.Printf("page %s had title %s \n", resHttp.Request.URL.String(), pageTitle)
-                 println("Got response \n", resHttp.StatusCode)
+                 fmt.Printf("page %s had title %s \n", res.Result.Request.URL.String(), pageTitle)
+                 println("Got response \n", res.Result.StatusCode)
              }
          }
      }).Wait()
@@ -132,42 +131,42 @@ The example is the same as above but reading feed realtime
 package main
 
 import (
-    "fmt"
-    "net/http"
+	"fmt"
+	"net/http"
 
-    "github.com/stcrestrada/gogo"
+	"github.com/PuerkitoBio/goquery"
+	"github.com/stcrestrada/gogo"
 )
 
 func main() {
-    concurrency := 2
-    urls := []string{"https://www.reddit.com/", "https://www.apple.com/", "https://www.yahoo.com/", "https://news.ycombinator.com/", "https://httpbin.org/uuid"}
+	concurrency := 2
+	urls := []string{"https://www.reddit.com/", "https://www.apple.com/", "https://www.yahoo.com/", "https://news.ycombinator.com/", "https://httpbin.org/uuid"}
 
-    // Simple pool
-    pool := gogo.NewPool(concurrency, len(urls), func(i int) func() (interface{}, error) {
-     url := urls[i]
-     return func() (interface{}, error) {
-         resp, err := http.Get(url)
-         return resp, err
-     }
-    })
+	// Simple pool
+	pool := gogo.NewPool(concurrency, len(urls), func(i int) func() (*http.Response, error) {
+		url := urls[i]
+		return func() (*http.Response, error) {
+			resp, err := http.Get(url)
+			return resp, err
+		}
+	})
 
-    // listen to a feed of results (concurrent safe)
-    feed := pool.Go()
+	// listen to a feed of results (concurrent safe)
+	feed := pool.Go()
 
-    // Read the feed
-    for res := range feed {
-     if res.Error == nil {
-         resHttp := res.Result.(*http.Response)
-         doc, err := goquery.NewDocumentFromReader(resHttp.Body)
-         if err != nil{
-             println("unable to parse", err)
-             continue
-         }
-         pageTitle := doc.Find("title").Text()
-         fmt.Printf("page %s had title %s \n", resHttp.Request.URL.String(), pageTitle)
-         println("Got response \n", resHttp.StatusCode)
-     }
-    }
+	// Read the feed
+	for res := range feed {
+		if res.Error == nil {
+			doc, err := goquery.NewDocumentFromReader(res.Result.Body)
+			if err != nil {
+				println("unable to parse", err)
+				continue
+			}
+			pageTitle := doc.Find("title").Text()
+			fmt.Printf("page %s had title %s \n", res.Result.Request.URL.String(), pageTitle)
+			println("Got response \n", res.Result.StatusCode)
+		}
+	}
 }
 
 ```
@@ -185,7 +184,7 @@ package main
 import (
     "fmt"
     "net/http"
-
+    
     "github.com/PuerkitoBio/goquery"
     "github.com/stcrestrada/gogo"
 )
@@ -196,30 +195,29 @@ func main() {
     urls := []string{"https://www.reddit.com/", "https://www.apple.com/", "https://www.yahoo.com/", "https://news.ycombinator.com/", "https://httpbin.org/uuid"}
     
     // Start our request group
-    requestGroup := gogo.NewPool(requestConcurrency, len(urls), func(i int) func() (interface{}, error) {
+    requestGroup := gogo.NewPool(requestConcurrency, len(urls), func(i int) func() (*http.Response, error) {
         url := urls[i]
-        return func() (interface{}, error) {
+        return func() (*http.Response, error) {
             return http.Get(url)
         }
     })
     requestFeed := requestGroup.Go()
     
     // Start our processing group and pipe in request results
-    processingGroup := gogo.NewPool(processingConcurrency, len(urls), func(i int) func() (interface{}, error) {
+    processingGroup := gogo.NewPool(processingConcurrency, len(urls), func(i int) func() (*http.Response, error) {
         requestResult := <- requestFeed
-        return func() (interface{}, error) {
+        return func() (*http.Response, error) {
             // Forward last steps error if there was one
             if requestResult.Error != nil{
                 return nil, requestResult.Error
             }
-            result := requestResult.Result.(*http.Response)
-            doc, err := goquery.NewDocumentFromReader(result.Body)
+            doc, err := goquery.NewDocumentFromReader(requestResult.Result.Body)
             if err != nil{
                 return nil, err
             }
             pageTitle := doc.Find("title").Text()
-            fmt.Printf("page %s had title %s \n", result.Request.URL.String(), pageTitle)
-            return nil, nil
+            fmt.Printf("page %s had title %s \n", requestResult.Request.URL.String(), pageTitle)
+            return requestResult.Result, nil
         }
     })
     
