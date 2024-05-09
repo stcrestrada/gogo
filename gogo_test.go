@@ -12,12 +12,12 @@ import (
 
 func TestSpec(t *testing.T) {
 	Convey("Given some function makes an http request using Gogo, err and result should return nil", t, func() {
-		proc := GoVoid[struct{}](func() {
+		proc := GoVoid[http.Response](func() {
 			http.Get("https://httpbin.org/uuid")
 		})
 		proc.Go()
 		So(proc.result.Error, ShouldEqual, nil)
-		So(proc.result.Result, ShouldResemble, struct{}{})
+		So(proc.result.Result, ShouldResemble, http.Response{})
 	})
 
 	Convey("Given some function makes a list of strings and returns a list of ints", t, func() {
