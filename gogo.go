@@ -162,10 +162,10 @@ func NewPool[T any](ctx context.Context, concurrency int, size int, fn func(i in
 	}
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	
+
 	// Create cancellable context if one was provided
 	ctx, cancel := context.WithCancel(ctx)
-	
+
 	return &Pool[T]{
 		concurrency: concurrency,
 		size:        size,

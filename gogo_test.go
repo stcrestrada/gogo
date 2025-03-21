@@ -155,15 +155,17 @@ func TestSpec(t *testing.T) {
 	})
 
 	Convey("Context cancellation should stop all goroutines", t, func() {
+		// Create context with cancelation function
 		ctx, cancel := context.WithCancel(context.Background())
-		
+		defer cancel() // Ensure cancel is called even if test fails
+
 		group := NewPool(ctx, 2, 10, func(i int) func(ctx context.Context) (int, error) {
 			return func(ctx context.Context) (int, error) {
 				// First task will complete, others will be slower
 				if i == 0 {
 					return i, nil
 				}
-				
+
 				// Slow tasks will be cancelled
 				select {
 				case <-ctx.Done():
@@ -173,9 +175,9 @@ func TestSpec(t *testing.T) {
 				}
 			}
 		})
-		
+
 		feed := group.Go()
-		
+
 		// Cancel after first result
 		var count int
 		for range feed {
@@ -185,11 +187,11 @@ func TestSpec(t *testing.T) {
 				break
 			}
 		}
-		
+
 		// Should still get all results, but most should be cancelled
 		var cancelledCount int
 		var successCount int
-		
+
 		for result := range feed {
 			if result.Error != nil && errors.Is(result.Error, context.Canceled) {
 				cancelledCount++
@@ -197,7 +199,7 @@ func TestSpec(t *testing.T) {
 				successCount++
 			}
 		}
-		
+
 		So(cancelledCount, ShouldBeGreaterThan, 0)
 	})
 }
