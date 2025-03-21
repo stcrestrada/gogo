@@ -1,6 +1,6 @@
 # gogo
 
-[![CI Status](https://dl.circleci.com/status-badge/img/gh/stcrestrada/gogo/tree/master.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/stcrestrada/gogo/tree/master)
+[![Go](https://github.com/stcrestrada/gogo/actions/workflows/go.yml/badge.svg)](https://github.com/stcrestrada/gogo/actions/workflows/go.yml)
 
 Simple Golang package for async goroutines with pools (workers/semaphores).
 

@@ -13,7 +13,7 @@ import (
 
 func SimpleAsyncGoroutines() {
 	ctx := context.Background()
-	
+
 	// Launched in another goroutine (not blocking)
 	proc := gogo.Go(ctx, func(ctx context.Context) (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, "GET", "https://news.ycombinator.com/", nil)
@@ -67,7 +67,7 @@ func ConcurrentGoroutinePoolsWithConcurrentFeed() {
 	// Or listen to a feed of results (concurrent safe)
 	feed := pool.Go()
 	// read the feed concurrently
-	gogo.GoVoid(ctx, func(ctx context.Context) {
+	gogo.GoVoid[struct{}](ctx, func(ctx context.Context) {
 		for res := range feed {
 			if res.Error == nil {
 				doc, err := goquery.NewDocumentFromReader(res.Result.Body)
@@ -163,7 +163,7 @@ func CancellationExample() {
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	// Create a pool that will be cancelled after 5 seconds
 	pool := gogo.NewPool(ctx, 2, 10, func(i int) func(ctx context.Context) (string, error) {
 		return func(ctx context.Context) (string, error) {
@@ -176,10 +176,10 @@ func CancellationExample() {
 			}
 		}
 	})
-	
+
 	feed := pool.Go()
 	completedTasks := 0
-	
+
 	// Read results as they come in
 	for res := range feed {
 		if res.Error != nil {
@@ -189,18 +189,18 @@ func CancellationExample() {
 			completedTasks++
 		}
 	}
-	
+
 	fmt.Printf("Completed %d tasks before timeout or cancellation\n", completedTasks)
 }
 
 func ManualCancellationExample() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	
+
 	pool := gogo.NewPool(ctx, 2, 10, func(i int) func(ctx context.Context) (string, error) {
 		return func(ctx context.Context) (string, error) {
 			// Simulate work with different durations
-			sleepTime := time.Duration((i+1)) * time.Second
+			sleepTime := time.Duration((i + 1)) * time.Second
 			select {
 			case <-ctx.Done():
 				return "", ctx.Err()
@@ -209,16 +209,16 @@ func ManualCancellationExample() {
 			}
 		}
 	})
-	
+
 	feed := pool.Go()
-	
+
 	// Cancel the pool after 3 seconds
 	go func() {
 		time.Sleep(3 * time.Second)
 		fmt.Println("Manually cancelling all remaining tasks...")
 		pool.Cancel()
 	}()
-	
+
 	// Read results as they come in
 	for res := range feed {
 		if res.Error != nil {
@@ -227,20 +227,15 @@ func ManualCancellationExample() {
 			fmt.Printf("Result: %s\n", res.Result)
 		}
 	}
-	
+
 	fmt.Println("All tasks finished or were cancelled")
 }
 
 func main() {
-	ConcurrentGoroutinePoolsWithConcurrentFeed()
-	ConcurrentGoroutinePoolsWithRealtimeFeed()
-	SimpleAsyncGoroutines()
-	ChainedPools()
-	
-	// New examples demonstrating cancellation
+	// Only run quick examples to avoid external HTTP calls in CI/tests
 	fmt.Println("\n=== Cancellation Example ===")
 	CancellationExample()
-	
+
 	fmt.Println("\n=== Manual Cancellation Example ===")
 	ManualCancellationExample()
 }
