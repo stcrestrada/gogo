@@ -1,18 +1,26 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/stcrestrada/gogo"
 )
 
 func SimpleAsyncGoroutines() {
+	ctx := context.Background()
+	
 	// Launched in another goroutine (not blocking)
-	proc := gogo.Go(func() (*http.Response, error) {
-		return http.Get("https://news.ycombinator.com/")
+	proc := gogo.Go(ctx, func(ctx context.Context) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, "GET", "https://news.ycombinator.com/", nil)
+		if err != nil {
+			return nil, err
+		}
+		return http.DefaultClient.Do(req)
 	})
 
 	// wait for results (blocking), concurrent safe
@@ -23,7 +31,7 @@ func SimpleAsyncGoroutines() {
 	println("got status code", res.StatusCode)
 
 	// Or just wait for the results
-	gogo.Go(func() (*http.Response, error) {
+	gogo.Go(ctx, func(ctx context.Context) (*http.Response, error) {
 		// wait for results (blocking), concurrent safe
 		resp, err := proc.Result()
 		if err != nil {
@@ -40,22 +48,26 @@ func SimpleAsyncGoroutines() {
 }
 
 func ConcurrentGoroutinePoolsWithConcurrentFeed() {
+	ctx := context.Background()
 	concurrency := 2
 	urls := []string{"https://www.reddit.com/", "https://www.apple.com/", "https://www.yahoo.com/", "https://news.ycombinator.com/", "https://httpbin.org/uuid"}
 
 	// Simple pool
-	pool := gogo.NewPool(concurrency, len(urls), func(i int) func() (*http.Response, error) {
+	pool := gogo.NewPool(ctx, concurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
 		url := urls[i]
-		return func() (*http.Response, error) {
-			resp, err := http.Get(url)
-			return resp, err
+		return func(ctx context.Context) (*http.Response, error) {
+			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+			if err != nil {
+				return nil, err
+			}
+			return http.DefaultClient.Do(req)
 		}
 	})
 
 	// Or listen to a feed of results (concurrent safe)
 	feed := pool.Go()
 	// read the feed concurrently
-	gogo.GoVoid[struct{}](func() {
+	gogo.GoVoid(ctx, func(ctx context.Context) {
 		for res := range feed {
 			if res.Error == nil {
 				doc, err := goquery.NewDocumentFromReader(res.Result.Body)
@@ -72,15 +84,19 @@ func ConcurrentGoroutinePoolsWithConcurrentFeed() {
 }
 
 func ConcurrentGoroutinePoolsWithRealtimeFeed() {
+	ctx := context.Background()
 	concurrency := 2
 	urls := []string{"https://www.reddit.com/", "https://www.apple.com/", "https://www.yahoo.com/", "https://news.ycombinator.com/", "https://httpbin.org/uuid"}
 
 	// Simple pool
-	pool := gogo.NewPool(concurrency, len(urls), func(i int) func() (*http.Response, error) {
+	pool := gogo.NewPool(ctx, concurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
 		url := urls[i]
-		return func() (*http.Response, error) {
-			resp, err := http.Get(url)
-			return resp, err
+		return func(ctx context.Context) (*http.Response, error) {
+			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+			if err != nil {
+				return nil, err
+			}
+			return http.DefaultClient.Do(req)
 		}
 	})
 
@@ -103,23 +119,28 @@ func ConcurrentGoroutinePoolsWithRealtimeFeed() {
 }
 
 func ChainedPools() {
+	ctx := context.Background()
 	requestConcurrency := 2
 	processingConcurrency := 8
 	urls := []string{"https://www.reddit.com/", "https://www.apple.com/", "https://www.yahoo.com/", "https://news.ycombinator.com/", "https://httpbin.org/uuid"}
 
 	// Start our request group
-	requestGroup := gogo.NewPool(requestConcurrency, len(urls), func(i int) func() (*http.Response, error) {
+	requestGroup := gogo.NewPool(ctx, requestConcurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
 		url := urls[i]
-		return func() (*http.Response, error) {
-			return http.Get(url)
+		return func(ctx context.Context) (*http.Response, error) {
+			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+			if err != nil {
+				return nil, err
+			}
+			return http.DefaultClient.Do(req)
 		}
 	})
 	requestFeed := requestGroup.Go()
 
 	// Start our processing group and pipe in request results
-	processingGroup := gogo.NewPool(processingConcurrency, len(urls), func(i int) func() (*http.Response, error) {
+	processingGroup := gogo.NewPool(ctx, processingConcurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
 		requestResult := <-requestFeed
-		return func() (*http.Response, error) {
+		return func(ctx context.Context) (*http.Response, error) {
 			// Forward last steps error if there was one
 			if requestResult.Error != nil {
 				return nil, requestResult.Error
@@ -138,9 +159,88 @@ func ChainedPools() {
 	processingGroup.Wait()
 }
 
+func CancellationExample() {
+	// Create a context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	// Create a pool that will be cancelled after 5 seconds
+	pool := gogo.NewPool(ctx, 2, 10, func(i int) func(ctx context.Context) (string, error) {
+		return func(ctx context.Context) (string, error) {
+			// Simulate long-running work
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(2 * time.Second):
+				return fmt.Sprintf("Task %d completed", i), nil
+			}
+		}
+	})
+	
+	feed := pool.Go()
+	completedTasks := 0
+	
+	// Read results as they come in
+	for res := range feed {
+		if res.Error != nil {
+			fmt.Printf("Error: %v\n", res.Error)
+		} else {
+			fmt.Printf("Result: %s\n", res.Result)
+			completedTasks++
+		}
+	}
+	
+	fmt.Printf("Completed %d tasks before timeout or cancellation\n", completedTasks)
+}
+
+func ManualCancellationExample() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	
+	pool := gogo.NewPool(ctx, 2, 10, func(i int) func(ctx context.Context) (string, error) {
+		return func(ctx context.Context) (string, error) {
+			// Simulate work with different durations
+			sleepTime := time.Duration((i+1)) * time.Second
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(sleepTime):
+				return fmt.Sprintf("Task %d completed after %v", i, sleepTime), nil
+			}
+		}
+	})
+	
+	feed := pool.Go()
+	
+	// Cancel the pool after 3 seconds
+	go func() {
+		time.Sleep(3 * time.Second)
+		fmt.Println("Manually cancelling all remaining tasks...")
+		pool.Cancel()
+	}()
+	
+	// Read results as they come in
+	for res := range feed {
+		if res.Error != nil {
+			fmt.Printf("Error: %v\n", res.Error)
+		} else {
+			fmt.Printf("Result: %s\n", res.Result)
+		}
+	}
+	
+	fmt.Println("All tasks finished or were cancelled")
+}
+
 func main() {
 	ConcurrentGoroutinePoolsWithConcurrentFeed()
 	ConcurrentGoroutinePoolsWithRealtimeFeed()
 	SimpleAsyncGoroutines()
 	ChainedPools()
+	
+	// New examples demonstrating cancellation
+	fmt.Println("\n=== Cancellation Example ===")
+	CancellationExample()
+	
+	fmt.Println("\n=== Manual Cancellation Example ===")
+	ManualCancellationExample()
 }

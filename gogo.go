@@ -1,6 +1,7 @@
 package gogo
 
 import (
+	"context"
 	"sync"
 )
 
@@ -10,10 +11,11 @@ type Optional[T any] struct {
 }
 
 type Proc[T any] struct {
-	fn     func() (T, error)
+	fn     func(ctx context.Context) (T, error)
 	result *Optional[T]
 	once   sync.Once
 	wg     sync.WaitGroup
+	ctx    context.Context
 }
 
 func (p *Proc[T]) Done() bool {
@@ -26,7 +28,17 @@ func (p *Proc[T]) Go() (T, error) {
 		p.wg.Add(1)
 		resultsChan := make(chan *Optional[T])
 		go func() {
-			res, err := p.fn()
+			var res T
+			var err error
+
+			// Check if context is done before executing
+			select {
+			case <-p.ctx.Done():
+				err = p.ctx.Err()
+			default:
+				res, err = p.fn(p.ctx)
+			}
+
 			resultsChan <- &Optional[T]{
 				Result: res,
 				Error:  err,
@@ -45,15 +57,16 @@ func (p *Proc[T]) Wait() {
 }
 
 // Wrap a simple function
-func GoVoid[T any](f func()) *Proc[T] {
-	wrapper := func() (T, error) {
-		f()
+func GoVoid[T any](ctx context.Context, f func(ctx context.Context)) *Proc[T] {
+	wrapper := func(ctx context.Context) (T, error) {
+		f(ctx)
 		var t T
 		return t, nil
 	}
 
 	proc := &Proc[T]{
-		fn: wrapper,
+		fn:  wrapper,
+		ctx: ctx,
 	}
 	go proc.Go()
 	return proc
@@ -63,9 +76,10 @@ func (p *Proc[T]) Result() (T, error) {
 	return p.Go()
 }
 
-func Go[T any](fn func() (T, error)) *Proc[T] {
+func Go[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) *Proc[T] {
 	proc := &Proc[T]{
-		fn: fn,
+		fn:  fn,
+		ctx: ctx,
 	}
 	go proc.Go()
 	return proc
@@ -74,12 +88,14 @@ func Go[T any](fn func() (T, error)) *Proc[T] {
 type Pool[T any] struct {
 	concurrency int
 	size        int
-	makeFn      func(i int) func() (T, error)
+	makeFn      func(i int) func(ctx context.Context) (T, error)
 	feed        chan Optional[T] // Sized to size
 	wg          *sync.WaitGroup  // Sized to 1 always
 	closeOnce   sync.Once
 	startOnce   sync.Once
 	closed      bool
+	ctx         context.Context
+	cancel      context.CancelFunc // For cancelling pool workers
 }
 
 func (g *Pool[T]) close() {
@@ -88,6 +104,12 @@ func (g *Pool[T]) close() {
 		close(g.feed)
 		g.wg.Done()
 	})
+}
+
+func (g *Pool[T]) Cancel() {
+	if g.cancel != nil {
+		g.cancel()
+	}
 }
 
 func (g *Pool[T]) Go() chan Optional[T] {
@@ -101,15 +123,27 @@ func (g *Pool[T]) Go() chan Optional[T] {
 			guard <- struct{}{}
 			fn := g.makeFn(i)
 			go func() {
-				res, err := fn()
+				defer func() {
+					<-guard
+					wg.Done()
+				}()
+
+				var res T
+				var err error
+
+				// Check if pool context is done
+				select {
+				case <-g.ctx.Done():
+					err = g.ctx.Err()
+				default:
+					res, err = fn(g.ctx)
+				}
+
 				g.feed <- Optional[T]{
 					Result: res,
 					Error:  err,
 				}
-				<-guard
-				wg.Done()
 			}()
-
 		}
 		wg.Wait()
 		g.close() // Make sure we close it
@@ -122,17 +156,23 @@ func (g *Pool[T]) Wait() {
 	g.wg.Wait()
 }
 
-func NewPool[T any](concurrency int, size int, fn func(i int) func() (T, error)) *Pool[T] {
+func NewPool[T any](ctx context.Context, concurrency int, size int, fn func(i int) func(ctx context.Context) (T, error)) *Pool[T] {
 	if concurrency > size {
 		concurrency = size
 	}
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
+	
+	// Create cancellable context if one was provided
+	ctx, cancel := context.WithCancel(ctx)
+	
 	return &Pool[T]{
 		concurrency: concurrency,
 		size:        size,
 		makeFn:      fn,
 		feed:        make(chan Optional[T], size),
 		wg:          wg,
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 }
