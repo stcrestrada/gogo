@@ -1,4 +1,5 @@
-package main
+// Package examples demonstrates basic usage of the gogo library.
+package examples
 
 import (
 	"context"
@@ -11,6 +12,7 @@ import (
 	"github.com/stcrestrada/gogo"
 )
 
+// SimpleAsyncGoroutines demonstrates basic async operation with gogo
 func SimpleAsyncGoroutines() {
 	ctx := context.Background()
 
@@ -47,6 +49,7 @@ func SimpleAsyncGoroutines() {
 	}).Wait()
 }
 
+// ConcurrentGoroutinePoolsWithConcurrentFeed demonstrates using a pool with concurrent feed processing
 func ConcurrentGoroutinePoolsWithConcurrentFeed() {
 	ctx := context.Background()
 	concurrency := 2
@@ -83,6 +86,7 @@ func ConcurrentGoroutinePoolsWithConcurrentFeed() {
 	}).Wait()
 }
 
+// ConcurrentGoroutinePoolsWithRealtimeFeed demonstrates using a pool with realtime feed processing
 func ConcurrentGoroutinePoolsWithRealtimeFeed() {
 	ctx := context.Background()
 	concurrency := 2
@@ -118,6 +122,7 @@ func ConcurrentGoroutinePoolsWithRealtimeFeed() {
 	}
 }
 
+// ChainedPools demonstrates chaining multiple pools together
 func ChainedPools() {
 	ctx := context.Background()
 	requestConcurrency := 2
@@ -159,6 +164,7 @@ func ChainedPools() {
 	processingGroup.Wait()
 }
 
+// CancellationExample demonstrates timeout-based cancellation
 func CancellationExample() {
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -193,6 +199,7 @@ func CancellationExample() {
 	fmt.Printf("Completed %d tasks before timeout or cancellation\n", completedTasks)
 }
 
+// ManualCancellationExample demonstrates manual cancellation
 func ManualCancellationExample() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -231,8 +238,8 @@ func ManualCancellationExample() {
 	fmt.Println("All tasks finished or were cancelled")
 }
 
-func main() {
-	// Only run quick examples to avoid external HTTP calls in CI/tests
+// RunBasicExamples runs all the basic examples
+func RunBasicExamples() {
 	fmt.Println("\n=== Cancellation Example ===")
 	CancellationExample()
 

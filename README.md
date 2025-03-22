@@ -11,7 +11,10 @@ Simple Golang package for async goroutines with pools (workers/semaphores).
 - Concurrent goroutine pools with controlled concurrency limits
 - Pipeline-style chaining of goroutine pools
 - Context support for proper cancellation and timeout handling
-- Easy cancellation of in-progress operations
+- Result transformation and filtering
+- Error collection and handling
+- Batch processing
+- Graceful shutdown support
 
 ## Installation
 
@@ -132,10 +135,8 @@ pool := gogo.NewPool(ctx, 2, 10, func(i int) func(ctx context.Context) (string, 
 
 feed := pool.Go()
 
-// Some condition to cancel the pool
-if someCondition {
-    pool.Cancel() // This will cancel all in-progress and pending tasks
-}
+// Cancel all tasks
+pool.Cancel() // This will cancel all in-progress and pending tasks
 
 // Process remaining results (including cancellation errors)
 for res := range feed {
@@ -143,43 +144,209 @@ for res := range feed {
 }
 ```
 
-## Advanced Usage
+## Advanced Features
 
-### Chained Pools (Pipeline)
+### Result Transformation
 
 ```go
 ctx := context.Background()
-requestConcurrency := 2
-processingConcurrency := 8
-urls := []string{"https://example1.com", "https://example2.com", "https://example3.com"}
 
-// Start request group
-requestGroup := gogo.NewPool(ctx, requestConcurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
-    url := urls[i]
-    return func(ctx context.Context) (*http.Response, error) {
-        req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-        if err != nil {
-            return nil, err
-        }
-        return http.DefaultClient.Do(req)
-    }
-})
-requestFeed := requestGroup.Go()
-
-// Start processing group and pipe in request results
-processingGroup := gogo.NewPool(ctx, processingConcurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
-    requestResult := <-requestFeed
-    return func(ctx context.Context) (*http.Response, error) {
-        if requestResult.Error != nil {
-            return nil, requestResult.Error
-        }
-        // Process the response
-        return requestResult.Result, nil
-    }
+// Start with a simple number
+proc := gogo.Go(ctx, func(ctx context.Context) (int, error) {
+    return 42, nil
 })
 
-// Wait for the pipeline to finish
-processingGroup.Wait()
+// Transform using Map
+doubled := proc.Map(func(n int) int {
+    return n * 2
+})
+
+// Transform using Then (with error handling)
+validated := doubled.Then(func(n int, err error) (int, error) {
+    if err != nil {
+        return 0, err
+    }
+    if n > 100 {
+        return 0, errors.New("number too large")
+    }
+    return n, nil
+})
+
+// Transform to a different type
+asString := gogo.MapTo(ctx, validated, func(n int) string {
+    return "The answer is " + strconv.Itoa(n)
+})
+
+// Get final result
+result, err := asString.Result()
+fmt.Printf("Result: %s\n", result) // Output: Result: The answer is 84
+```
+
+### Error Collection
+
+```go
+ctx := context.Background()
+
+// Create an error pool that collects errors
+pool := gogo.NewErrorPool(ctx, 2, 5, func(i int) func(ctx context.Context) (string, error) {
+    return func(ctx context.Context) (string, error) {
+        if i%2 == 0 {
+            return "", fmt.Errorf("task %d failed", i)
+        }
+        return fmt.Sprintf("Task %d succeeded", i), nil
+    }
+})
+
+// Wait for all tasks to complete
+pool.Wait()
+
+// Get all errors that occurred
+errors := pool.Errors()
+fmt.Printf("Collected %d errors\n", len(errors))
+for _, err := range errors {
+    fmt.Printf("  - %v\n", err)
+}
+```
+
+### Batch Processing
+
+```go
+ctx := context.Background()
+
+// Create a pool with 10 tasks
+pool := gogo.NewPool(ctx, 3, 10, func(i int) func(ctx context.Context) (int, error) {
+    return func(ctx context.Context) (int, error) {
+        return i, nil
+    }
+})
+
+// Process results in batches of 3
+pool.Batch(3, func(batch []gogo.Optional[int]) {
+    fmt.Printf("Processing batch of %d items: [", len(batch))
+    for i, item := range batch {
+        if i > 0 {
+            fmt.Print(", ")
+        }
+        fmt.Print(item.Result)
+    }
+    fmt.Println("]")
+})
+```
+
+### Filtering
+
+```go
+ctx := context.Background()
+
+// Create a proc with a result
+proc := gogo.Go(ctx, func(ctx context.Context) (int, error) {
+    return 5, nil
+})
+
+// Apply a filter (only allow even numbers)
+evenOnly := proc.Filter(func(n int) bool {
+    return n%2 == 0 // Only allow even numbers
+})
+
+// Get the filtered result
+result, err := evenOnly.Result()
+if err == gogo.ErrFilterRejected {
+    fmt.Println("Number was filtered out (odd)")
+} else if err != nil {
+    fmt.Printf("Error: %v\n", err)
+} else {
+    fmt.Printf("Passed filter: %d\n", result)
+}
+```
+
+### Type-Changing Chained Pools
+
+```go
+ctx := context.Background()
+
+// First pool: generate numbers
+generatorPool := gogo.NewPool(ctx, 2, 5, func(i int) func(ctx context.Context) (int, error) {
+    return func(ctx context.Context) (int, error) {
+        return i * 10, nil
+    }
+})
+
+// Convert the integers to strings in a new pool
+stringPool := gogo.Chain(ctx, generatorPool, 3, func(result gogo.Optional[int]) func(ctx context.Context) (string, error) {
+    return func(ctx context.Context) (string, error) {
+        if result.Error != nil {
+            return "", result.Error
+        }
+        return fmt.Sprintf("Number: %d", result.Result), nil
+    }
+})
+
+// Process the string results
+feed := stringPool.Go()
+for res := range feed {
+    fmt.Println(res.Result) // "Number: 0", "Number: 10", etc.
+}
+```
+
+### Graceful Shutdown
+
+```go
+ctx := context.Background()
+
+// Create a pool with graceful shutdown (allowing 2 seconds for cleanup)
+pool := gogo.NewPool(ctx, 3, 5, func(i int) func(ctx context.Context) (string, error) {
+    return func(ctx context.Context) (string, error) {
+        select {
+        case <-ctx.Done():
+            // Graceful shutdown allows tasks to perform cleanup
+            fmt.Printf("Task %d cleaning up resources\n", i)
+            time.Sleep(500 * time.Millisecond) // Simulate cleanup
+            return "", ctx.Err()
+        case <-time.After(2 * time.Second):
+            return fmt.Sprintf("Task %d completed", i), nil
+        }
+    }
+}).WithGracefulShutdown(2 * time.Second)
+
+// Start the tasks
+feed := pool.Go()
+
+// After some time, initiate graceful shutdown
+go func() {
+    time.Sleep(3 * time.Second)
+    pool.Cancel()
+}()
+
+// Collect results
+for res := range feed {
+    // Handle results
+}
+```
+
+### Enhanced Context Propagation
+
+```go
+// Create base context with a value
+ctx := context.WithValue(context.Background(), "userID", "user123")
+
+// Create a pool that adds more context values
+pool := gogo.NewPool(ctx, 2, 3, func(i int) func(ctx context.Context) (string, error) {
+    return func(ctx context.Context) (string, error) {
+        // Access context values
+        userID, _ := ctx.Value("userID").(string)
+        requestID, _ := ctx.Value("requestID").(string)
+        return fmt.Sprintf("Task %d for user %s, request %s", i, userID, requestID), nil
+    }
+}).WithValue("requestID", "req456") // Add request ID to context
+
+// Add timeout
+timedPool := pool.WithTimeout(5 * time.Second)
+
+// Execute with enhanced context
+feed := timedPool.Go()
+for res := range feed {
+    fmt.Println(res.Result)
+}
 ```
 
 ## License
