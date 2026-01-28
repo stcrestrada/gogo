@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/stcrestrada/gogo"
+	"github.com/stcrestrada/gogo/v3"
 )
 
 func SimpleAsyncGoroutines() {

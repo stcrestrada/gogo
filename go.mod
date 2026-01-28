@@ -1,4 +1,4 @@
-module github.com/stcrestrada/gogo
+module github.com/stcrestrada/gogo/v3
 
 go 1.25
 
