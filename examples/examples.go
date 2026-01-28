@@ -52,16 +52,13 @@ func ConcurrentGoroutinePoolsWithConcurrentFeed() {
 	concurrency := 2
 	urls := []string{"https://www.reddit.com/", "https://www.apple.com/", "https://www.yahoo.com/", "https://news.ycombinator.com/", "https://httpbin.org/uuid"}
 
-	// Simple pool
-	pool := gogo.NewPool(ctx, concurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
-		url := urls[i]
-		return func(ctx context.Context) (*http.Response, error) {
-			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-			if err != nil {
-				return nil, err
-			}
-			return http.DefaultClient.Do(req)
+	// Simple pool with new flattened API
+	pool := gogo.NewPool(ctx, concurrency, len(urls), func(ctx context.Context, i int) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, "GET", urls[i], nil)
+		if err != nil {
+			return nil, err
 		}
+		return http.DefaultClient.Do(req)
 	})
 
 	// Or listen to a feed of results (concurrent safe)
@@ -88,16 +85,13 @@ func ConcurrentGoroutinePoolsWithRealtimeFeed() {
 	concurrency := 2
 	urls := []string{"https://www.reddit.com/", "https://www.apple.com/", "https://www.yahoo.com/", "https://news.ycombinator.com/", "https://httpbin.org/uuid"}
 
-	// Simple pool
-	pool := gogo.NewPool(ctx, concurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
-		url := urls[i]
-		return func(ctx context.Context) (*http.Response, error) {
-			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-			if err != nil {
-				return nil, err
-			}
-			return http.DefaultClient.Do(req)
+	// Simple pool with new flattened API
+	pool := gogo.NewPool(ctx, concurrency, len(urls), func(ctx context.Context, i int) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, "GET", urls[i], nil)
+		if err != nil {
+			return nil, err
 		}
+		return http.DefaultClient.Do(req)
 	})
 
 	// Or listen to a feed of results (concurrent safe)
@@ -124,35 +118,35 @@ func ChainedPools() {
 	processingConcurrency := 8
 	urls := []string{"https://www.reddit.com/", "https://www.apple.com/", "https://www.yahoo.com/", "https://news.ycombinator.com/", "https://httpbin.org/uuid"}
 
-	// Start our request group
-	requestGroup := gogo.NewPool(ctx, requestConcurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
-		url := urls[i]
-		return func(ctx context.Context) (*http.Response, error) {
-			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-			if err != nil {
-				return nil, err
-			}
-			return http.DefaultClient.Do(req)
+	// Start our request group with new flattened API
+	requestGroup := gogo.NewPool(ctx, requestConcurrency, len(urls), func(ctx context.Context, i int) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, "GET", urls[i], nil)
+		if err != nil {
+			return nil, err
 		}
+		return http.DefaultClient.Do(req)
 	})
 	requestFeed := requestGroup.Go()
 
-	// Start our processing group and pipe in request results
-	processingGroup := gogo.NewPool(ctx, processingConcurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
-		requestResult := <-requestFeed
-		return func(ctx context.Context) (*http.Response, error) {
-			// Forward last steps error if there was one
-			if requestResult.Error != nil {
-				return nil, requestResult.Error
-			}
-			doc, err := goquery.NewDocumentFromReader(requestResult.Result.Body)
-			if err != nil {
-				return nil, err
-			}
-			pageTitle := doc.Find("title").Text()
-			fmt.Printf("page %s had title %s \n", requestResult.Result.Request.URL.String(), pageTitle)
-			return requestResult.Result, nil
+	// Collect request results
+	var requestResults []gogo.Optional[*http.Response]
+	for result := range requestFeed {
+		requestResults = append(requestResults, result)
+	}
+
+	// Start our processing group and process the results
+	processingGroup := gogo.NewPool(ctx, processingConcurrency, len(requestResults), func(ctx context.Context, i int) (*http.Response, error) {
+		// Forward last steps error if there was one
+		if requestResults[i].Error != nil {
+			return nil, requestResults[i].Error
 		}
+		doc, err := goquery.NewDocumentFromReader(requestResults[i].Result.Body)
+		if err != nil {
+			return nil, err
+		}
+		pageTitle := doc.Find("title").Text()
+		fmt.Printf("page %s had title %s \n", requestResults[i].Result.Request.URL.String(), pageTitle)
+		return requestResults[i].Result, nil
 	})
 
 	// Wait for the pipelines to finish!
@@ -165,15 +159,13 @@ func CancellationExample() {
 	defer cancel()
 
 	// Create a pool that will be cancelled after 5 seconds
-	pool := gogo.NewPool(ctx, 2, 10, func(i int) func(ctx context.Context) (string, error) {
-		return func(ctx context.Context) (string, error) {
-			// Simulate long-running work
-			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
-			case <-time.After(2 * time.Second):
-				return fmt.Sprintf("Task %d completed", i), nil
-			}
+	pool := gogo.NewPool(ctx, 2, 10, func(ctx context.Context, i int) (string, error) {
+		// Simulate long-running work
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(2 * time.Second):
+			return fmt.Sprintf("Task %d completed", i), nil
 		}
 	})
 
@@ -197,16 +189,14 @@ func ManualCancellationExample() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pool := gogo.NewPool(ctx, 2, 10, func(i int) func(ctx context.Context) (string, error) {
-		return func(ctx context.Context) (string, error) {
-			// Simulate work with different durations
-			sleepTime := time.Duration((i + 1)) * time.Second
-			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
-			case <-time.After(sleepTime):
-				return fmt.Sprintf("Task %d completed after %v", i, sleepTime), nil
-			}
+	pool := gogo.NewPool(ctx, 2, 10, func(ctx context.Context, i int) (string, error) {
+		// Simulate work with different durations
+		sleepTime := time.Duration((i + 1)) * time.Second
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(sleepTime):
+			return fmt.Sprintf("Task %d completed after %v", i, sleepTime), nil
 		}
 	})
 
@@ -231,6 +221,85 @@ func ManualCancellationExample() {
 	fmt.Println("All tasks finished or were cancelled")
 }
 
+func MapExample() {
+	ctx := context.Background()
+
+	// Transform a slice concurrently using Map
+	numbers := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+	results, errors := gogo.Map(ctx, 3, numbers, func(ctx context.Context, num int) (int, error) {
+		// Simulate some work
+		time.Sleep(100 * time.Millisecond)
+		return num * num, nil // Square each number
+	})
+
+	if len(errors) > 0 {
+		fmt.Printf("Encountered %d errors\n", len(errors))
+	}
+
+	fmt.Printf("Squared results: %v\n", results)
+	fmt.Printf("Processed %d numbers concurrently\n", len(results))
+}
+
+func ForEachExample() {
+	ctx := context.Background()
+
+	// URLs to process
+	urls := []string{
+		"https://httpbin.org/delay/1",
+		"https://httpbin.org/status/200",
+		"https://httpbin.org/uuid",
+	}
+
+	// Process each URL concurrently
+	errors := gogo.ForEach(ctx, 2, urls, func(ctx context.Context, url string) error {
+		resp, err := http.Get(url)
+		if err != nil {
+			return fmt.Errorf("failed to fetch %s: %w", url, err)
+		}
+		defer resp.Body.Close()
+
+		fmt.Printf("✓ Fetched %s: %d\n", url, resp.StatusCode)
+		return nil
+	})
+
+	if len(errors) > 0 {
+		fmt.Printf("Encountered %d errors:\n", len(errors))
+		for _, err := range errors {
+			fmt.Printf("  - %v\n", err)
+		}
+	} else {
+		fmt.Println("All URLs processed successfully!")
+	}
+}
+
+func CollectExample() {
+	ctx := context.Background()
+
+	// Create a pool
+	pool := gogo.NewPool(ctx, 3, 10, func(ctx context.Context, i int) (int, error) {
+		// Simulate some work
+		time.Sleep(100 * time.Millisecond)
+
+		// Simulate an error on task 5
+		if i == 5 {
+			return 0, fmt.Errorf("error on task %d", i)
+		}
+
+		return i * 2, nil
+	})
+
+	// Use Collect() to get all results at once
+	results, errors := pool.Collect()
+
+	fmt.Printf("Completed %d tasks successfully\n", len(results))
+	fmt.Printf("Failed %d tasks\n", len(errors))
+	fmt.Printf("Results: %v\n", results)
+	if len(errors) > 0 {
+		fmt.Printf("Errors: %v\n", errors)
+	}
+}
+
 func main() {
 	// Only run quick examples to avoid external HTTP calls in CI/tests
 	fmt.Println("\n=== Cancellation Example ===")
@@ -238,4 +307,14 @@ func main() {
 
 	fmt.Println("\n=== Manual Cancellation Example ===")
 	ManualCancellationExample()
+
+	fmt.Println("\n=== Map Example ===")
+	MapExample()
+
+	fmt.Println("\n=== Collect Example ===")
+	CollectExample()
+
+	// Uncomment to run ForEach example (makes external HTTP calls)
+	// fmt.Println("\n=== ForEach Example ===")
+	// ForEachExample()
 }

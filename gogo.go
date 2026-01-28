@@ -88,7 +88,7 @@ func Go[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) *Pr
 type Pool[T any] struct {
 	concurrency int
 	size        int
-	makeFn      func(i int) func(ctx context.Context) (T, error)
+	makeFn      func(ctx context.Context, i int) (T, error)
 	feed        chan Optional[T] // Sized to size
 	wg          *sync.WaitGroup  // Sized to 1 always
 	closeOnce   sync.Once
@@ -121,7 +121,7 @@ func (g *Pool[T]) Go() chan Optional[T] {
 		// Execute the work here
 		for i := 0; i < g.size; i++ {
 			guard <- struct{}{}
-			fn := g.makeFn(i)
+			taskIndex := i
 			go func() {
 				defer func() {
 					<-guard
@@ -136,7 +136,7 @@ func (g *Pool[T]) Go() chan Optional[T] {
 				case <-g.ctx.Done():
 					err = g.ctx.Err()
 				default:
-					res, err = fn(g.ctx)
+					res, err = g.makeFn(g.ctx, taskIndex)
 				}
 
 				g.feed <- Optional[T]{
@@ -156,7 +156,23 @@ func (g *Pool[T]) Wait() {
 	g.wg.Wait()
 }
 
-func NewPool[T any](ctx context.Context, concurrency int, size int, fn func(i int) func(ctx context.Context) (T, error)) *Pool[T] {
+// Collect waits for all tasks to complete and returns slices of results and errors
+func (g *Pool[T]) Collect() ([]T, []error) {
+	results := make([]T, 0, g.size)
+	errors := make([]error, 0)
+
+	for opt := range g.Go() {
+		if opt.Error != nil {
+			errors = append(errors, opt.Error)
+		} else {
+			results = append(results, opt.Result)
+		}
+	}
+
+	return results, errors
+}
+
+func NewPool[T any](ctx context.Context, concurrency int, size int, fn func(ctx context.Context, i int) (T, error)) *Pool[T] {
 	if concurrency > size {
 		concurrency = size
 	}
@@ -175,4 +191,26 @@ func NewPool[T any](ctx context.Context, concurrency int, size int, fn func(i in
 		ctx:         ctx,
 		cancel:      cancel,
 	}
+}
+
+// Map applies a function to each item in a slice concurrently and returns the results
+// Returns a slice of results and a slice of errors (one for each failed item)
+func Map[T any, R any](ctx context.Context, workers int, items []T, fn func(ctx context.Context, item T) (R, error)) ([]R, []error) {
+	pool := NewPool(ctx, workers, len(items), func(ctx context.Context, i int) (R, error) {
+		return fn(ctx, items[i])
+	})
+
+	return pool.Collect()
+}
+
+// ForEach applies a function to each item in a slice concurrently (fire-and-forget style)
+// Returns a slice of errors for any failed operations
+func ForEach[T any](ctx context.Context, workers int, items []T, fn func(ctx context.Context, item T) error) []error {
+	pool := NewPool(ctx, workers, len(items), func(ctx context.Context, i int) (struct{}, error) {
+		err := fn(ctx, items[i])
+		return struct{}{}, err
+	})
+
+	_, errors := pool.Collect()
+	return errors
 }

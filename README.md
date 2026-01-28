@@ -9,7 +9,9 @@ Simple Golang package for async goroutines with pools (workers/semaphores).
 - Simple async function wrapping via `Go` and `GoVoid` functions
 - Typed results via generics
 - Concurrent goroutine pools with controlled concurrency limits
-- Pipeline-style chaining of goroutine pools
+- **New!** Convenience functions `Map` and `ForEach` for common patterns
+- **New!** `Collect()` method for easier result gathering
+- **Improved!** Cleaner, flattened API (no more nested functions)
 - Context support for proper cancellation and timeout handling
 - Easy cancellation of in-progress operations
 
@@ -56,15 +58,12 @@ ctx := context.Background()
 // Set up a pool with 2 concurrent goroutines for 5 URLs
 urls := []string{"https://example1.com", "https://example2.com", "https://example3.com", "https://example4.com", "https://example5.com"}
 
-pool := gogo.NewPool(ctx, 2, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
-    url := urls[i]
-    return func(ctx context.Context) (*http.Response, error) {
-        req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-        if err != nil {
-            return nil, err
-        }
-        return http.DefaultClient.Do(req)
+pool := gogo.NewPool(ctx, 2, len(urls), func(ctx context.Context, i int) (*http.Response, error) {
+    req, err := http.NewRequestWithContext(ctx, "GET", urls[i], nil)
+    if err != nil {
+        return nil, err
     }
+    return http.DefaultClient.Do(req)
 })
 
 // Get a channel feed of results
@@ -80,6 +79,66 @@ for res := range feed {
 }
 ```
 
+### Easy Result Collection with Collect()
+
+```go
+ctx := context.Background()
+
+pool := gogo.NewPool(ctx, 5, 10, func(ctx context.Context, i int) (int, error) {
+    if i == 5 {
+        return 0, fmt.Errorf("error on task %d", i)
+    }
+    return i * 2, nil
+})
+
+// Collect() waits for all results and returns separate slices
+results, errors := pool.Collect()
+
+fmt.Printf("Got %d results: %v\n", len(results), results)
+fmt.Printf("Got %d errors: %v\n", len(errors), errors)
+```
+
+### Map - Transform a Slice Concurrently
+
+```go
+ctx := context.Background()
+
+// Transform a slice of items concurrently
+items := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+results, errors := gogo.Map(ctx, 3, items, func(ctx context.Context, item int) (int, error) {
+    // Simulate some work
+    time.Sleep(100 * time.Millisecond)
+    return item * 2, nil
+})
+
+fmt.Printf("Results: %v\n", results) // [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+```
+
+### ForEach - Process Items Concurrently
+
+```go
+ctx := context.Background()
+
+urls := []string{"https://example1.com", "https://example2.com", "https://example3.com"}
+
+// Process each URL concurrently (fire-and-forget style)
+errors := gogo.ForEach(ctx, 2, urls, func(ctx context.Context, url string) error {
+    resp, err := http.Get(url)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+
+    fmt.Printf("Fetched %s: %d\n", url, resp.StatusCode)
+    return nil
+})
+
+if len(errors) > 0 {
+    fmt.Printf("Encountered %d errors\n", len(errors))
+}
+```
+
 ### Context Cancellation
 
 ```go
@@ -87,14 +146,12 @@ for res := range feed {
 ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 defer cancel()
 
-pool := gogo.NewPool(ctx, 2, 10, func(i int) func(ctx context.Context) (string, error) {
-    return func(ctx context.Context) (string, error) {
-        select {
-        case <-ctx.Done():
-            return "", ctx.Err()
-        case <-time.After(2 * time.Second):
-            return fmt.Sprintf("Task %d completed", i), nil
-        }
+pool := gogo.NewPool(ctx, 2, 10, func(ctx context.Context, i int) (string, error) {
+    select {
+    case <-ctx.Done():
+        return "", ctx.Err()
+    case <-time.After(2 * time.Second):
+        return fmt.Sprintf("Task %d completed", i), nil
     }
 })
 
@@ -115,19 +172,17 @@ for res := range feed {
 ```go
 ctx := context.Background()
 
-pool := gogo.NewPool(ctx, 2, 10, func(i int) func(ctx context.Context) (string, error) {
-    return func(ctx context.Context) (string, error) {
-        // Check for cancellation
-        select {
-        case <-ctx.Done():
-            return "", ctx.Err()
-        default:
-            // Continue with work
-        }
-        
-        // Do work
-        return fmt.Sprintf("Task %d", i), nil
+pool := gogo.NewPool(ctx, 2, 10, func(ctx context.Context, i int) (string, error) {
+    // Check for cancellation
+    select {
+    case <-ctx.Done():
+        return "", ctx.Err()
+    default:
+        // Continue with work
     }
+
+    // Do work
+    return fmt.Sprintf("Task %d", i), nil
 })
 
 feed := pool.Go()
@@ -154,28 +209,28 @@ processingConcurrency := 8
 urls := []string{"https://example1.com", "https://example2.com", "https://example3.com"}
 
 // Start request group
-requestGroup := gogo.NewPool(ctx, requestConcurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
-    url := urls[i]
-    return func(ctx context.Context) (*http.Response, error) {
-        req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-        if err != nil {
-            return nil, err
-        }
-        return http.DefaultClient.Do(req)
+requestGroup := gogo.NewPool(ctx, requestConcurrency, len(urls), func(ctx context.Context, i int) (*http.Response, error) {
+    req, err := http.NewRequestWithContext(ctx, "GET", urls[i], nil)
+    if err != nil {
+        return nil, err
     }
+    return http.DefaultClient.Do(req)
 })
 requestFeed := requestGroup.Go()
 
-// Start processing group and pipe in request results
-processingGroup := gogo.NewPool(ctx, processingConcurrency, len(urls), func(i int) func(ctx context.Context) (*http.Response, error) {
-    requestResult := <-requestFeed
-    return func(ctx context.Context) (*http.Response, error) {
-        if requestResult.Error != nil {
-            return nil, requestResult.Error
-        }
-        // Process the response
-        return requestResult.Result, nil
+// Collect request results for processing
+var requestResults []gogo.Optional[*http.Response]
+for result := range requestFeed {
+    requestResults = append(requestResults, result)
+}
+
+// Start processing group
+processingGroup := gogo.NewPool(ctx, processingConcurrency, len(requestResults), func(ctx context.Context, i int) (*http.Response, error) {
+    if requestResults[i].Error != nil {
+        return nil, requestResults[i].Error
     }
+    // Process the response
+    return requestResults[i].Result, nil
 })
 
 // Wait for the pipeline to finish

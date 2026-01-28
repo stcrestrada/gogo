@@ -1,0 +1,124 @@
+# GoReleaser configuration for gogo
+# https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    # You can remove this if you don't use go modules
+    - go mod tidy
+    - go mod download
+
+builds:
+  # This is a library, so we don't need to build binaries
+  # But we'll keep a minimal build config for potential CLI tools in the future
+  - skip: true
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'merge conflict'
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+  groups:
+    - title: 'New Features'
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: 'Bug Fixes'
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: 'Performance Improvements'
+      regexp: "^.*perf[(\\w)]*:+.*$"
+      order: 2
+    - title: 'Breaking Changes'
+      regexp: "^.*breaking[(\\w)]*:+.*$"
+      order: 3
+    - title: 'Documentation Updates'
+      regexp: "^.*docs[(\\w)]*:+.*$"
+      order: 4
+    - title: 'Other Changes'
+      order: 999
+
+# GitHub release configuration
+release:
+  github:
+    owner: stcrestrada
+    name: gogo
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## gogo {{ .Tag }} ({{ .Date }})
+
+    Welcome to this new release of gogo!
+  footer: |
+    ## Installation
+
+    ```bash
+    go get github.com/stcrestrada/gogo@{{ .Tag }}
+    ```
+
+    **Full Changelog**: https://github.com/stcrestrada/gogo/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+# Announce to social platforms (optional)
+# announce:
+#   twitter:
+#     enabled: true
+#     message_template: 'gogo {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+
+# Homebrew tap (the ruby file you mentioned!)
+brews:
+  - name: gogo
+    repository:
+      owner: stcrestrada
+      name: homebrew-tap
+      # If you don't have a homebrew-tap repo yet, GoReleaser can create it
+      # token: "{{ .Env.GITHUB_TOKEN }}"
+
+    # Set to true if the tap should be created
+    # skip_upload: false
+
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+
+    folder: Formula
+
+    homepage: "https://github.com/stcrestrada/gogo"
+    description: "Simple Golang package for async goroutines with pools"
+
+    license: "MIT"
+
+    test: |
+      # This is a library, no binary to test
+      system "#{bin}/gogo version"
+
+    # Custom install script
+    install: |
+      # This is a Go library, so we just document how to use it
+      prefix.install Dir["*"]

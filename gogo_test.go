@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -63,19 +64,16 @@ func TestSpec(t *testing.T) {
 	Convey("Given some function create a pool of 2 concurrent go routines to run", t, func() {
 		var numbers []int
 		random := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
-		group := NewPool(ctx, 2, len(random), func(i int) func(ctx context.Context) (int, error) {
-			ran := random[i]
-			return func(ctx context.Context) (int, error) {
-				select {
-				case <-ctx.Done():
-					return 0, ctx.Err()
-				default:
-					conv, err := strconv.Atoi(ran)
-					if err != nil {
-						return 0, err
-					}
-					return conv, nil
+		group := NewPool(ctx, 2, len(random), func(ctx context.Context, i int) (int, error) {
+			select {
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			default:
+				conv, err := strconv.Atoi(random[i])
+				if err != nil {
+					return 0, err
 				}
+				return conv, nil
 			}
 		})
 		feed := group.Go()
@@ -95,14 +93,12 @@ func TestSpec(t *testing.T) {
 		count := 50
 		concurrency := 25
 		sleepTime := time.Second * 1
-		group := NewPool(ctx, concurrency, count, func(i int) func(ctx context.Context) (interface{}, error) {
-			return func(ctx context.Context) (interface{}, error) {
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				case <-time.After(sleepTime):
-					return nil, nil
-				}
+		group := NewPool(ctx, concurrency, count, func(ctx context.Context, i int) (interface{}, error) {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(sleepTime):
+				return nil, nil
 			}
 		})
 		start := time.Now()
@@ -132,13 +128,11 @@ func TestSpec(t *testing.T) {
 	})
 
 	Convey("Given a Pool, it should handle errors correctly", t, func() {
-		group := NewPool(ctx, 2, 5, func(i int) func(ctx context.Context) (int, error) {
-			return func(ctx context.Context) (int, error) {
-				if i == 3 {
-					return 0, errors.New("test error")
-				}
-				return i, nil
+		group := NewPool(ctx, 2, 5, func(ctx context.Context, i int) (int, error) {
+			if i == 3 {
+				return 0, errors.New("test error")
 			}
+			return i, nil
 		})
 		feed := group.Go()
 		var results []int
@@ -159,20 +153,18 @@ func TestSpec(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel() // Ensure cancel is called even if test fails
 
-		group := NewPool(ctx, 2, 10, func(i int) func(ctx context.Context) (int, error) {
-			return func(ctx context.Context) (int, error) {
-				// First task will complete, others will be slower
-				if i == 0 {
-					return i, nil
-				}
+		group := NewPool(ctx, 2, 10, func(ctx context.Context, i int) (int, error) {
+			// First task will complete, others will be slower
+			if i == 0 {
+				return i, nil
+			}
 
-				// Slow tasks will be cancelled
-				select {
-				case <-ctx.Done():
-					return 0, ctx.Err()
-				case <-time.After(3 * time.Second):
-					return i, nil
-				}
+			// Slow tasks will be cancelled
+			select {
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			case <-time.After(3 * time.Second):
+				return i, nil
 			}
 		})
 
@@ -201,5 +193,84 @@ func TestSpec(t *testing.T) {
 		}
 
 		So(cancelledCount, ShouldBeGreaterThan, 0)
+	})
+
+	Convey("Given a Pool, Collect() should return all results and errors", t, func() {
+		group := NewPool(ctx, 2, 5, func(ctx context.Context, i int) (int, error) {
+			if i == 3 {
+				return 0, errors.New("test error")
+			}
+			return i * 2, nil
+		})
+		results, errs := group.Collect()
+		So(results, ShouldHaveLength, 4)
+		So(errs, ShouldHaveLength, 1)
+		// Check that we got the doubled values
+		total := 0
+		for _, r := range results {
+			total += r
+		}
+		So(total, ShouldEqual, 0+2+4+8) // 0*2 + 1*2 + 2*2 + 4*2 (skipping 3)
+	})
+
+	Convey("Map should transform a slice concurrently", t, func() {
+		items := []int{1, 2, 3, 4, 5}
+		results, errs := Map(ctx, 2, items, func(ctx context.Context, item int) (int, error) {
+			return item * 2, nil
+		})
+		So(errs, ShouldHaveLength, 0)
+		So(results, ShouldHaveLength, 5)
+		// Sum should be (1+2+3+4+5)*2 = 30
+		total := 0
+		for _, r := range results {
+			total += r
+		}
+		So(total, ShouldEqual, 30)
+	})
+
+	Convey("Map should handle errors correctly", t, func() {
+		items := []int{1, 2, 3, 4, 5}
+		results, errs := Map(ctx, 2, items, func(ctx context.Context, item int) (int, error) {
+			if item == 3 {
+				return 0, errors.New("error on 3")
+			}
+			return item * 2, nil
+		})
+		So(errs, ShouldHaveLength, 1)
+		So(results, ShouldHaveLength, 4)
+	})
+
+	Convey("ForEach should process all items and return errors", t, func() {
+		items := []int{1, 2, 3, 4, 5}
+		processed := make([]int, 0, 5)
+		var mu sync.Mutex
+
+		errs := ForEach(ctx, 2, items, func(ctx context.Context, item int) error {
+			if item == 3 {
+				return errors.New("error on 3")
+			}
+			mu.Lock()
+			processed = append(processed, item*2)
+			mu.Unlock()
+			return nil
+		})
+
+		So(errs, ShouldHaveLength, 1)
+		So(processed, ShouldHaveLength, 4)
+	})
+
+	Convey("Map should work with different types", t, func() {
+		items := []string{"1", "2", "3", "4", "5"}
+		results, errs := Map(ctx, 3, items, func(ctx context.Context, item string) (int, error) {
+			return strconv.Atoi(item)
+		})
+		So(errs, ShouldHaveLength, 0)
+		So(results, ShouldHaveLength, 5)
+		// Sum should be 1+2+3+4+5 = 15 (order not guaranteed with concurrency)
+		total := 0
+		for _, r := range results {
+			total += r
+		}
+		So(total, ShouldEqual, 15)
 	})
 }
