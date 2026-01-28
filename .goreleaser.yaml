@@ -91,34 +91,15 @@ release:
 #     enabled: true
 #     message_template: 'gogo {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
 
-# Homebrew tap (the ruby file you mentioned!)
-brews:
-  - name: gogo
-    repository:
-      owner: stcrestrada
-      name: homebrew-tap
-      # If you don't have a homebrew-tap repo yet, GoReleaser can create it
-      # token: "{{ .Env.GITHUB_TOKEN }}"
-
-    # Set to true if the tap should be created
-    # skip_upload: false
-
-    commit_author:
-      name: goreleaserbot
-      email: bot@goreleaser.com
-
-    folder: Formula
-
-    homepage: "https://github.com/stcrestrada/gogo"
-    description: "Simple Golang package for async goroutines with pools"
-
-    license: "MIT"
-
-    test: |
-      # This is a library, no binary to test
-      system "#{bin}/gogo version"
-
-    # Custom install script
-    install: |
-      # This is a Go library, so we just document how to use it
-      prefix.install Dir["*"]
+# Homebrew tap - Disabled for now since this is a Go library, not a CLI tool
+# Users install with: go get github.com/stcrestrada/gogo@v3.0.0
+# To enable Homebrew tap in the future, uncomment and configure:
+# brews:
+#   - name: gogo
+#     repository:
+#       owner: stcrestrada
+#       name: homebrew-tap
+#     directory: Formula
+#     homepage: "https://github.com/stcrestrada/gogo"
+#     description: "Simple Golang package for async goroutines with pools"
+#     license: "MIT"
