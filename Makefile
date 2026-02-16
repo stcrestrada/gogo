@@ -14,9 +14,9 @@ test:
 build:
 	go build -v ./...
 
-# Build examples
+# Build examples (separate module with its own go.mod)
 examples:
-	go build -o examples_bin ./examples/examples.go
+	cd examples && go build -o ../examples_bin .
 
 # Run examples
 run-examples: examples
