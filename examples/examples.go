@@ -64,7 +64,7 @@ func ConcurrentGoroutinePoolsWithConcurrentFeed() {
 	// Or listen to a feed of results (concurrent safe)
 	feed := pool.Go()
 	// read the feed concurrently
-	gogo.GoVoid[struct{}](ctx, func(ctx context.Context) {
+	gogo.GoVoid(ctx, func(ctx context.Context) {
 		for res := range feed {
 			if res.Error == nil {
 				doc, err := goquery.NewDocumentFromReader(res.Result.Body)
