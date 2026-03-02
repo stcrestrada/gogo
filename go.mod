@@ -1,6 +1,6 @@
 module github.com/stcrestrada/gogo/v3
 
-go 1.25
+go 1.26
 
 require github.com/smartystreets/goconvey v1.8.1
 
