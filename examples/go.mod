@@ -1,6 +1,6 @@
 module github.com/stcrestrada/gogo/v3/examples
 
-go 1.25
+go 1.26
 
 require (
 	github.com/PuerkitoBio/goquery v1.9.2
