@@ -31,9 +31,8 @@ func (p *Proc[T]) Done() bool {
 // Blocking
 func (p *Proc[T]) Go() (T, error) {
 	p.once.Do(func() {
-		p.wg.Add(1)
 		resultsChan := make(chan *Optional[T])
-		go func() {
+		p.wg.Go(func() {
 			var res T
 			var err error
 
@@ -49,8 +48,7 @@ func (p *Proc[T]) Go() (T, error) {
 				Result: res,
 				Error:  err,
 			}
-			p.wg.Done()
-		}()
+		})
 		result := <-resultsChan
 		p.result = result
 		p.done.Store(true)
@@ -139,16 +137,12 @@ func (g *Pool[T]) start() {
 		}
 		go func() {
 			var wg sync.WaitGroup
-			wg.Add(g.size)
 			guard := make(chan struct{}, g.concurrency)
 			for i := 0; i < g.size; i++ {
 				guard <- struct{}{}
 				taskIndex := i
-				go func() {
-					defer func() {
-						<-guard
-						wg.Done()
-					}()
+				wg.Go(func() {
+					defer func() { <-guard }()
 
 					var res T
 					var err error
@@ -171,7 +165,7 @@ func (g *Pool[T]) start() {
 							Error:  err,
 						},
 					}
-				}()
+				})
 			}
 			wg.Wait()
 			close(g.feed)
@@ -336,12 +330,8 @@ func NewStreamPool[T any](ctx context.Context, concurrency int, opts ...PoolOpti
 	guard := make(chan struct{}, concurrency)
 	dispatch := func(fn func(context.Context) (T, error)) {
 		guard <- struct{}{}
-		sp.wg.Add(1)
-		go func() {
-			defer func() {
-				<-guard
-				sp.wg.Done()
-			}()
+		sp.wg.Go(func() {
+			defer func() { <-guard }()
 
 			var res T
 			var err error
@@ -361,7 +351,7 @@ func NewStreamPool[T any](ctx context.Context, concurrency int, opts ...PoolOpti
 				Result: res,
 				Error:  err,
 			}
-		}()
+		})
 	}
 
 	go func() {
